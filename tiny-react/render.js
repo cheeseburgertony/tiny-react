@@ -1,19 +1,33 @@
-function render(element, container) {
+// 创建真实DOM元素
+function createDom(fiber) {
   // 创建对应的真实DOM元素
   const dom =
-    element.type === "TEXT_ELEMENT"
+    fiber.type === "TEXT_ELEMENT"
       ? document.createTextNode("")
-      : document.createElement(element.type);
+      : document.createElement(fiber.type);
 
   // 设置DOM元素的属性
-  Object.keys(element.props)
+  Object.keys(fiber.props)
     .filter((key) => key !== "children")
     .forEach((key) => {
-      dom[key] = element.props[key];
+      dom[key] = fiber.props[key];
     });
 
-  // 将创建的DOM元素添加到容器（父元素）中
-  container.appendChild(dom);
+  return dom;
+}
+
+// 渲染函数
+function render(element, container) {
+  // 创建根fiber
+  nextUnitOfWork = {
+    dom: container,
+    props: {
+      children: [element],
+    },
+    parent: null,
+    child: null,
+    sibling: null,
+  };
 }
 
 let nextUnitOfWork = null;
@@ -37,6 +51,58 @@ function workLoop(deadline) {
 // 第一次请求
 requestIdleCallback(workLoop);
 
-function performUnitOfWork(nextUnitOfWork) {}
+// 执行单元工作函数
+function performUnitOfWork(fiber) {
+  // fiber对应的DOM元素不存在则创建
+  if (!fiber.dom) {
+    fiber.dom = createDom(fiber);
+  }
+
+  if (fiber.parent) {
+    // 将当前fiber的DOM元素添加到父fiber的DOM元素中
+    fiber.parent.dom.appendChild(fiber.dom);
+  }
+
+  // 为子元素创建fiber并构建Fiber Tree
+  const elements = fiber.props.children;
+  let prevSibling = null;
+
+  for (let i = 0; i < elements.length; i++) {
+    const element = elements[i];
+
+    // 创建新的fiber
+    const newFiber = {
+      type: element.type,
+      props: element.props,
+      parent: fiber,
+      dom: null,
+      child: null,
+      sibling: null,
+    };
+
+    if (i === 0) {
+      // 第一个子元素作为子fiber
+      fiber.child = newFiber;
+    } else {
+      // 其他子元素作为儿子的兄弟fiber
+      prevSibling.sibling = newFiber;
+    }
+    // 每次执行后更新prevSibling
+    prevSibling = newFiber;
+  }
+
+  // 返回下一个工作单元
+  if (fiber.child) {
+    return fiber.child;
+  }
+
+  let nextFiber = fiber;
+  while (nextFiber) {
+    if (nextFiber.sibling) {
+      return nextFiber.sibling;
+    }
+    nextFiber = nextFiber.parent;
+  }
+}
 
 export default render;
