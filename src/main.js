@@ -1,18 +1,11 @@
 import { createElement, render } from "../tiny-react";
 
-const handleInput = (e) => {
-  renderer(e.target.value);
+const App = (props) => {
+  return createElement("h1", null, "Hello ", props.name);
 };
 
-const renderer = (value) => {
-  const element = createElement(
-    "div",
-    null,
-    createElement("input", { oninput: (e) => handleInput(e) }, null),
-    createElement("h1", { style: "color: pink;" }, value)
-  );
-  const root = document.querySelector("#root");
-  render(element, root);
-};
+const element = createElement(App, { name: "Tony" });
 
-renderer("");
+const container = document.getElementById("root");
+
+render(element, container);
