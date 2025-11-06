@@ -27,15 +27,24 @@ function render(element, container) {
     parent: null,
     child: null,
     sibling: null,
+    alternate: currentRoot,
   };
+  deletions = [];
   nextUnitOfWork = wipRoot;
 }
 
 let nextUnitOfWork = null;
 let wipRoot = null;
+let currentRoot = null;
+let deletions = null;
 
 function commitRoot() {
+  // 先处理删除的节点
+  deletions.forEach(commitWork);
+  // 提交更新的节点
   commitWork(wipRoot.child);
+  // 保存当前的根节点，以便下一次更新使用
+  currentRoot = wipRoot;
   wipRoot = null;
 }
 
@@ -45,10 +54,62 @@ function commitWork(fiber) {
   }
 
   const domParent = fiber.parent.dom;
-  domParent.appendChild(fiber.dom);
+  if (fiber.effectTag === "PLACEMENT" && fiber.dom) {
+    domParent.appendChild(fiber.dom);
+  } else if (fiber.effectTag === "DELETION") {
+    domParent.removeChild(fiber.dom);
+  } else if (fiber.effectTag === "UPDATE" && fiber.dom) {
+    updateDom(fiber.dom, fiber.alternate.props, fiber.props);
+  }
 
   commitWork(fiber.child);
   commitWork(fiber.sibling);
+}
+
+// 判断是否为事件
+const isEvent = (key) => key.startsWith("on");
+// 判断是否为属性
+const isProperty = (key) => key !== "children" && !isEvent(key);
+// 判断是否为新属性
+const isNew = (prev, next) => (key) => prev[key] !== next[key];
+// 判断是否被删除的属性
+const isGone = (prev, next) => (key) => !(key in next);
+
+// 更新DOM属性函数
+function updateDom(dom, prevProps, nextProps) {
+  // 移除旧的事件或者修改的事件
+  Object.keys(prevProps)
+    .filter(isEvent)
+    .filter((key) => !(key in nextProps) || isNew(prevProps, nextProps)(key))
+    .forEach((key) => {
+      const eventType = key.toLocaleLowerCase().substring(2);
+      dom.removeEventListener(eventType, prevProps[key]);
+    });
+
+  // 添加新的事件
+  Object.keys(nextProps)
+    .filter(isEvent)
+    .filter(isNew(prevProps, nextProps))
+    .forEach((key) => {
+      const eventType = key.toLocaleLowerCase().substring(2);
+      dom.addEventListener(eventType, nextProps[key]);
+    });
+
+  // 删除旧属性
+  Object.keys(prevProps)
+    .filter(isProperty)
+    .filter(isGone(prevProps, nextProps))
+    .forEach((key) => {
+      dom[key] = "";
+    });
+
+  // 设置新属性
+  Object.keys(nextProps)
+    .filter(isProperty)
+    .filter(isNew(prevProps, nextProps))
+    .forEach((key) => {
+      dom[key] = nextProps[key];
+    });
 }
 
 // 工作循环 调度函数（替换之前的递归渲染）
@@ -83,31 +144,7 @@ function performUnitOfWork(fiber) {
 
   // 为子元素创建fiber并构建Fiber Tree
   const elements = fiber.props.children;
-  let prevSibling = null;
-
-  for (let i = 0; i < elements.length; i++) {
-    const element = elements[i];
-
-    // 创建新的fiber
-    const newFiber = {
-      type: element.type,
-      props: element.props,
-      parent: fiber,
-      dom: null,
-      child: null,
-      sibling: null,
-    };
-
-    if (i === 0) {
-      // 第一个子元素作为子fiber
-      fiber.child = newFiber;
-    } else {
-      // 其他子元素作为儿子的兄弟fiber
-      prevSibling.sibling = newFiber;
-    }
-    // 每次执行后更新prevSibling
-    prevSibling = newFiber;
-  }
+  reconcileChildren(fiber, elements);
 
   // 返回下一个工作单元
   if (fiber.child) {
@@ -120,6 +157,63 @@ function performUnitOfWork(fiber) {
       return nextFiber.sibling;
     }
     nextFiber = nextFiber.parent;
+  }
+}
+
+function reconcileChildren(wipFiber, elements) {
+  let index = 0;
+  let oldFiber = wipFiber.alternate && wipFiber.alternate.child;
+  let prevSibling = null;
+
+  // 遍历元素和老的fiber节点
+  while (index < elements.length || oldFiber) {
+    const element = elements[index];
+    let newFiber = null;
+
+    const sameType = oldFiber && element && element.type === oldFiber.type;
+
+    if (sameType) {
+      // 类型相同，更新节点属性，复用DOM，标记为UPDATE
+      newFiber = {
+        type: oldFiber.type,
+        props: element.props,
+        dom: oldFiber.dom,
+        parent: wipFiber,
+        alternate: oldFiber,
+        effectTag: "UPDATE",
+      };
+    }
+    if (element && !sameType) {
+      // 类型不同且有新元素，创建新节点，标记为PLACEMENT
+      newFiber = {
+        type: element.type,
+        props: element.props,
+        dom: null,
+        parent: wipFiber,
+        alternate: null,
+        effectTag: "PLACEMENT",
+      };
+    }
+    if (oldFiber && !sameType) {
+      // 类型不同且没有新元素，删除老节点，标记为DELETION
+      oldFiber.effectTag = "DELETION";
+      deletions.push(oldFiber);
+    }
+
+    if (oldFiber) {
+      oldFiber = oldFiber.sibling;
+    }
+
+    if (index === 0) {
+      // 第一个子元素作为子fiber
+      wipFiber.child = newFiber;
+    } else {
+      // 其他子元素作为儿子的兄弟fiber
+      prevSibling.sibling = newFiber;
+    }
+    // 每次执行后更新prevSibling
+    prevSibling = newFiber;
+    index++;
   }
 }
 
