@@ -19,7 +19,7 @@ function createDom(fiber) {
 // 渲染函数
 function render(element, container) {
   // 创建根fiber
-  nextUnitOfWork = {
+  wipRoot = {
     dom: container,
     props: {
       children: [element],
@@ -28,9 +28,28 @@ function render(element, container) {
     child: null,
     sibling: null,
   };
+  nextUnitOfWork = wipRoot;
 }
 
 let nextUnitOfWork = null;
+let wipRoot = null;
+
+function commitRoot() {
+  commitWork(wipRoot.child);
+  wipRoot = null;
+}
+
+function commitWork(fiber) {
+  if (!fiber) {
+    return;
+  }
+
+  const domParent = fiber.parent.dom;
+  domParent.appendChild(fiber.dom);
+
+  commitWork(fiber.child);
+  commitWork(fiber.sibling);
+}
 
 // 工作循环 调度函数（替换之前的递归渲染）
 function workLoop(deadline) {
@@ -43,6 +62,10 @@ function workLoop(deadline) {
     nextUnitOfWork = performUnitOfWork(nextUnitOfWork);
     // 判断在这一帧中是否还有足够的时间
     shouldYield = deadline.timeRemaining() < 1;
+
+    if (!nextUnitOfWork && wipRoot) {
+      commitRoot();
+    }
   }
   // 没有足够的时间则退出循环，并且请求下一次浏览器空闲的时候执行
   requestIdleCallback(workLoop);
@@ -56,11 +79,6 @@ function performUnitOfWork(fiber) {
   // fiber对应的DOM元素不存在则创建
   if (!fiber.dom) {
     fiber.dom = createDom(fiber);
-  }
-
-  if (fiber.parent) {
-    // 将当前fiber的DOM元素添加到父fiber的DOM元素中
-    fiber.parent.dom.appendChild(fiber.dom);
   }
 
   // 为子元素创建fiber并构建Fiber Tree
