@@ -1,10 +1,17 @@
-import { createElement, render } from "../tiny-react";
+import { createElement, render, useState } from "../tiny-react";
 
-const App = (props) => {
-  return createElement("h1", null, "Hello ", props.name);
+const Counter = () => {
+  const [count, setCount] = useState(0);
+
+  return createElement(
+    "div",
+    null,
+    createElement("h1", null, count),
+    createElement("button", { onclick: () => setCount((c) => c + 1) }, "+1")
+  );
 };
 
-const element = createElement(App, { name: "Tony" });
+const element = createElement(Counter);
 
 const container = document.getElementById("root");
 
